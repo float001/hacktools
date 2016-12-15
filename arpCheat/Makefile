@@ -1,7 +1,6 @@
 #
-## Author Feng Gao
 #
-##
+#
 
 .PHONY: all clean depend
 

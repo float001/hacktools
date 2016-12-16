@@ -18,6 +18,7 @@
 #include <net/ethernet.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <time.h>
 
 const char* g_program_name = NULL;
 
@@ -210,12 +211,18 @@ static void send_arp_packet(arp_cheat_addr_t* addrs) {
         // arp packet
         fill_arp_packet(&arp_pkt->arp_h, addrs);
 
-        for (;;) {
+        time_t now;
+        char timebuf[256];
+        for (long i = 1;; i++) {
             ret_len = sendto(fd, buf, sizeof buf, 0, (struct sockaddr *)&saddr_ll,
                     sizeof(struct sockaddr_ll));
             if (ret_len != sizeof buf) {
                 perror("sendto error");
             }
+            now = time(0);
+            strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S",
+                    (struct tm *) localtime(&now));
+            fprintf(stdout, "%s: send arp cheat packet [%ld]\n", timebuf, i);
             sleep(1);
         }
 /*

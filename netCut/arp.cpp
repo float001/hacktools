@@ -1,51 +1,16 @@
 /*
  *
- * arp cheat by ivan
+ * arp.c
  *
  * email: float0001@gmail.com
  *
  * 2016-12-15 14:57:47
  *
  */
-#include <stdio.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <sys/ioctl.h>
-#include <sys/types.h>
-#include <netinet/if_ether.h>
-#include <arpa/inet.h>
-#include <netpacket/packet.h>
-#include <net/if.h>
-#include <net/if_arp.h>
-#include <net/ethernet.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <time.h>
+#include "arp.h"
 
-const char* g_program_name = NULL;
-
-typedef struct arp_packet_s_ {
-    struct ether_header eth_h;
-    struct ether_arp    arp_h;
-} arp_packet_t;
-
-typedef struct arp_cheat_addr_s_ {
-    int op;
-    unsigned char eth_src_mac[ETH_ALEN];
-    unsigned char eth_dst_mac[ETH_ALEN];
-    unsigned char arp_snd_mac[ETH_ALEN];
-    unsigned char arp_tgt_mac[ETH_ALEN];
-    const char* arp_snd_ip;
-    const char* arp_tgt_ip;
-    const char* if_name;
-} arp_cheat_addr_t;
-
-#define IP_ADDR_LEN 4
-#define BROADCAST_ADDR {0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
-
-static unsigned char* get_mac_addr(const char* src,
-        unsigned char* tmac, int len) {
-    int tnum;
+unsigned char* get_mac_addr(const char* src, unsigned char* tmac, int32_t len) {
+    int32_t tnum;
     char tsrc[25];
     const char* tok = src;
     long k = 0;
@@ -55,7 +20,7 @@ static unsigned char* get_mac_addr(const char* src,
 
     }
 
-    for (int i = 0; i < 6; i++) {
+    for (int32_t i = 0; i < 6; i++) {
         if (i == 5) {
             k = strlen(tok);
 
@@ -111,8 +76,8 @@ static unsigned char* get_mac_addr(const char* src,
 
     return tmac;
 }
-static int check_ip(const char* p) {
-    int  n[4];
+int32_t check_ip(const char* p) {
+    int32_t n[4];
     char c[4];
     if (p == NULL) {
         return 1;
@@ -121,7 +86,7 @@ static int check_ip(const char* p) {
                 &n[0], &c[0], &n[1], &c[1],
                 &n[2], &c[2], &n[3], &c[3])
             == 7) {
-        int i;
+        int32_t i;
         for (i = 0; i < 3; ++i) {
             if (c[i] != '.') {
                 return 1;
@@ -156,12 +121,12 @@ static void fill_arp_packet(struct ether_arp* arp_packet,
     memcpy(arp_packet->arp_tpa, &dst_in_addr, IP_ADDR_LEN);
 }
 
-static void send_arp_packet(arp_cheat_addr_t* addrs) {
+void send_arp_packet(arp_cheat_addr_t* addrs) {
     char buf[sizeof(arp_packet_t)];
     struct sockaddr_ll saddr_ll;
     arp_packet_t* arp_pkt = (arp_packet_t *)buf;
     struct ifreq ifr;
-    int fd = 0, ret_len;
+    int32_t fd = 0, ret_len;
     static unsigned char null_mac[ETH_ALEN] = { 0 };
 
     do {
@@ -254,7 +219,7 @@ static void send_arp_packet(arp_cheat_addr_t* addrs) {
     }
 }
 
-static int check_arp_addr(arp_cheat_addr_t* addrs) {
+static int32_t check_arp_addr(arp_cheat_addr_t* addrs) {
     unsigned char null_mac[ETH_ALEN] = { 0 };
     if (0 == memcmp(addrs->eth_src_mac, &null_mac, ETH_ALEN)
      || 0 == memcmp(addrs->arp_snd_mac, &null_mac, ETH_ALEN)) {
@@ -279,105 +244,6 @@ static int check_arp_addr(arp_cheat_addr_t* addrs) {
         return 1;
     }
 
-    return 0;
-}
-static void usage() {
-    fprintf(stdout, "Usage: %s [OPTIONS...]\n", g_program_name);
-    fprintf(stdout, "   OPTIONS\n");
-//    fprintf(stdout, "      -req               : request. default: response\n");
-//    fprintf(stdout, "      [-eth_src_mac mac] : ethernet source mac. if null "
-//            "it use interface mac\n");
-//    fprintf(stdout, "      -eth_dst_mac  mac  : ethernet destination mac\n");
-    fprintf(stdout, "      -tgt_ip   ip   : target ip\n");
-    fprintf(stdout, "      -tgt_mac  mac  : target mac\n");
-    fprintf(stdout, "      -fake_ip  ip   : fake ip\n");
-    fprintf(stdout, "      -fake_mac mac  : fake mac\n");
-    fprintf(stdout, "      -i             : interface's name eg. eth0\n");
-    fprintf(stdout, "      -h             : help\n");
-    fprintf(stdout, "\nBest wishes!! Contact float0001@gmail.com.\n");
-    exit(0);
-
-}
-int main(int argc, const char *argv[]) {
-    arp_cheat_addr_t addrs;
-    bzero(&addrs, sizeof(arp_cheat_addr_t));
-    addrs.op = 2;
-
-    char *p = (char *)memrchr((const void *)argv[0], (int)'/', strlen(argv[0]));
-    g_program_name = p == NULL ? argv[0] : (p + 1);
-
-    for (int i = 1; i < argc; ++i) {
-        if (strncasecmp(argv[i], "-tgt_ip", 7) == 0) {
-            i++;
-            if (i < argc) {
-                if (0 != check_ip(argv[i])) {
-                    fprintf(stderr, "target ip invalid!\n");
-                    return -1;
-                }
-                addrs.arp_tgt_ip = argv[i];
-            } else {
-                fprintf(stderr, "-tgt_ip need ip address.\n");
-                return -1;
-            }
-        }  else if (strncasecmp(argv[i], "-tgt_mac", 8) == 0) {
-            i++;
-            if (i < argc) {
-                if (NULL == get_mac_addr(argv[i], addrs.eth_dst_mac,
-                            sizeof(addrs.eth_dst_mac))) {
-                    fprintf(stderr, "ethernet destination mac invalid!\n");
-                    return -1;
-                }
-                memcpy(addrs.arp_tgt_mac, addrs.eth_dst_mac,
-                    sizeof(addrs.arp_tgt_mac));
-            } else {
-                fprintf(stderr, "-tgt_mac need mac address.\n");
-                return -1;
-            }
-        } else if (strncasecmp(argv[i], "-fake_ip", 8) == 0) {
-            i++;
-            if (i < argc) {
-                if (0 != check_ip(argv[i])) {
-                    fprintf(stderr, "fake ip invalid!\n");
-                    return -1;
-                }
-                addrs.arp_snd_ip = argv[i];
-            } else {
-                fprintf(stderr, "-fake_ip need ip address.\n");
-                return -1;
-            }
-        } else if (strncasecmp(argv[i], "-fake_mac", 9) == 0) {
-            i++;
-            if (i < argc) {
-                if (NULL == get_mac_addr(argv[i], addrs.eth_src_mac,
-                            sizeof(addrs.eth_src_mac))) {
-                    fprintf(stderr, "target mac invalid!\n");
-                    return -1;
-                }
-                memcpy(addrs.arp_snd_mac, addrs.eth_src_mac,
-                    sizeof(addrs.arp_snd_mac));
-            } else {
-                fprintf(stderr, "-fake_mac need mac address.\n");
-                return -1;
-            }
-        } else if (strncasecmp(argv[i], "-i", 2) == 0) {
-            i++;
-            if (i < argc) {
-                addrs.if_name = argv[i];
-            } else {
-                fprintf(stderr, "-i need interface's name.\n");
-                return -1;
-            }
-        } else if (strncasecmp(argv[i], "-h", 1) == 0) {
-            usage();
-        } else {}
-    }
-
-    if (0 == check_arp_addr(&addrs)) {
-        send_arp_packet(&addrs);
-    } else {
-        fprintf(stderr, "parameters error!!!\n");
-        usage();
-    }
     return 0;
 }
 

@@ -9,7 +9,6 @@ LDFLAGS := -lpthread
 CC := gcc
 
 SRCS := $(wildcard *.c)
-DEPS := $(patsubst %.c,%.d,$(SRCS))
 OBJS := $(patsubst %.c,%.o,$(SRCS))
 
 
@@ -17,11 +16,8 @@ TARGET := arpCheat
 
 all: $(TARGET)
 
-$(TARGET): $(OBJS) $(DEPS)
+$(TARGET): $(OBJS)
 	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS)
-
-%.d:%.c
-	$(CC) -M $(CFLAGS) $< > $@
 
 %.o:%.c
 	$(CC) -c $(CFLAGS) $< -o $@
@@ -32,10 +28,6 @@ explain:
 	@echo "Source files: $(SRCS)"
 	@echo "Object files: $(OBJS)"
 
-depend:$(DEPS)
-	@echo "Dependencies are now up-to-date"
-
 clean:
-	rm -f $(TARGET) $(OBJS) $(DEPS)
+	rm -f $(TARGET) $(OBJS)
 
--include $(DEPS)

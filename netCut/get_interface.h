@@ -18,6 +18,8 @@ typedef struct {
 
 typedef std::vector<interface_item_t> interface_list_t;
 
+int get_if_ip_mask(const char* name, uint32_t &ip, uint32_t &mask,
+        uint8_t* mac);
 int get_interface_list(interface_list_t& ret_list);
 
 #endif  // __GET_INTERFACE_H__

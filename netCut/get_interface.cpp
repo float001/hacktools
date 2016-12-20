@@ -6,6 +6,7 @@
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <netinet/in.h>
+#include <netinet/if_ether.h>
 #include <stdio.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -15,13 +16,74 @@
 #include <linux/rtnetlink.h>
 #include <string>
 
-// static void get_mac_addr(const char* ip);
 static int get_gateway(char* dev, char *gateway, int sizeof_gateeay);
 static std::string arp_get(const char *ip, const char* dev);
 #define MAXINTERFACES 16
 #define GET_MAC_ITEM(a) static_cast<int>(static_cast<unsigned char>(a))
 
-int get_interface_list(le_interface_list_t& ret_list) {
+int get_if_ip_mask(const char* name, uint32_t &ip, uint32_t &mask,
+        uint8_t* mac) {
+    int fd;
+    struct ifreq ifr;
+    if (strlen(name) >= sizeof(ifr.ifr_name)) {
+        fprintf(stderr, "interface name is too long.\n");
+        return -1;
+    }
+
+    if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
+        perror("socket(AF_INET,SOCK_DGRAM,0) error:");
+        return -2;
+    }
+
+    bzero(&ifr, sizeof (struct ifreq));
+    memcpy(ifr.ifr_name, name, strlen(name));
+
+    if (ioctl(fd, SIOCGIFFLAGS, &ifr) == 0) {
+        /* 接口状态 */
+        if (ifr.ifr_flags & IFF_UP) {
+        } else {
+            fprintf(stderr, "interface [%s] is not up.\n", name);
+            close(fd);
+            return -3;
+        }
+    } else {
+        perror("SIOCGIFFLAGS ioctl error :");
+        close(fd);
+        return -4;
+    }
+
+    /* IP地址 */
+    if (ioctl(fd, SIOCGIFADDR, &ifr) == 0) {
+        struct sockaddr_in *cur = reinterpret_cast<struct sockaddr_in*> \
+                                  (&ifr.ifr_addr);
+        ip = ntohl(cur->sin_addr.s_addr);
+    } else {
+        perror("SIOCGIFADDR ioctl error:");
+        close(fd);
+        return -5;
+    }
+    /* 子网掩码 */
+    if (ioctl(fd, SIOCGIFNETMASK, &ifr) == 0) {
+        struct sockaddr_in *cur = reinterpret_cast<struct sockaddr_in*> \
+                                  (&ifr.ifr_addr);
+        mask = ntohl(cur->sin_addr.s_addr);
+    } else {
+        perror("SIOCGIFADDR ioctl error:");
+        close(fd);
+        return -6;
+    }
+    /*MAC地址 */
+    if (ioctl(fd, SIOCGIFHWADDR, &ifr) == 0) {
+        memcpy(mac, ifr.ifr_hwaddr.sa_data, ETH_ALEN);
+    } else {
+        perror("SIOCGIFHWADDR ioctl error:");
+        close(fd);
+        return -7;
+    }
+
+    return 0;
+}
+int get_interface_list(interface_list_t& ret_list) {
     int fd;
     int if_len;
     struct ifreq buf[MAXINTERFACES];
@@ -37,7 +99,7 @@ int get_interface_list(le_interface_list_t& ret_list) {
     ifc.ifc_len = sizeof(buf);
     ifc.ifc_buf = (caddr_t)buf;
 
-    if (ioctl(fd, SIOCGIFCONF, reinterpret_cast<char *>(&ifc)) == -1) {
+    if (ioctl(fd, SIOCGIFCONF, &ifc) == -1) {
         perror("SIOCGIFCONF ioctl error:");
         close(fd);
         return -2;
@@ -63,8 +125,7 @@ int get_interface_list(le_interface_list_t& ret_list) {
         name = buf[if_len].ifr_name;
         item.name = name;
 
-        if (!(ioctl(fd, SIOCGIFFLAGS,
-            reinterpret_cast<char *>(&buf[if_len])))) {
+        if (ioctl(fd, SIOCGIFFLAGS, &buf[if_len]) == 0) {
             /* 接口状态 */
             if (buf[if_len].ifr_flags & IFF_UP) {
                 status = 1;
@@ -73,37 +134,31 @@ int get_interface_list(le_interface_list_t& ret_list) {
             }
             item.status = (status != 0 ? 1 : 0);
         } else {
-            perror("SIOCGIFFLAGS ioctl %s error :");
+            perror("SIOCGIFFLAGS ioctl error :");
             status = -1;
         }
 
         /* IP地址 */
-        if (!(ioctl(fd, SIOCGIFADDR, reinterpret_cast<char *>(&buf[if_len])))) {
+        if (ioctl(fd, SIOCGIFADDR, &buf[if_len]) == 0) {
             struct sockaddr_in *cur = reinterpret_cast<struct sockaddr_in*> \
-                    (&buf[if_len].ifr_addr);
+                                      (&buf[if_len].ifr_addr);
             item.ip = ntohl(cur->sin_addr.s_addr);
             item.ip_str = inet_ntoa(cur->sin_addr);
         } else {
-            perror("SIOCGIFADDR ioctl %s error:");
+            perror("SIOCGIFADDR ioctl error:");
         }
 
         /* 子网掩码 */
-        if (!(ioctl(fd, SIOCGIFNETMASK,
-            reinterpret_cast<char *>(&buf[if_len])))) {
+        if (ioctl(fd, SIOCGIFNETMASK, &buf[if_len]) == 0) {
             struct sockaddr_in *cur = reinterpret_cast<struct sockaddr_in*> \
-                    (&buf[if_len].ifr_addr);
-            item.netmask_str = inet_ntoa(cur->sin_addr.s_addr);
+                                      (&buf[if_len].ifr_addr);
+            item.netmask_str = inet_ntoa(cur->sin_addr);
         } else {
-            if (sf != NULL) {
-                sf->warn_log(0, "SIOCGIFNETMASK ioctl %s error: %s",
-                buf[if_len].ifr_name, strerror(errno));
-            }
-            ignore_item = true;
+            perror("SIOCGIFNETMASK ioctl error:");
         }
 
         /*MAC地址 */
-        if (!(ioctl(fd, SIOCGIFHWADDR,
-                reinterpret_cast<char *>(&buf[if_len])))) {
+        if (ioctl(fd, SIOCGIFHWADDR, &buf[if_len]) == 0) {
             snprintf(mac_str, sizeof (mac_str), "%02x:%02x:%02x:%02x:%02x:%02x"
                     , GET_MAC_ITEM(buf[if_len].ifr_hwaddr.sa_data[0])
                     , GET_MAC_ITEM(buf[if_len].ifr_hwaddr.sa_data[1])
@@ -113,7 +168,7 @@ int get_interface_list(le_interface_list_t& ret_list) {
                     , GET_MAC_ITEM(buf[if_len].ifr_hwaddr.sa_data[5]));
             item.mac_str = mac_str;
         } else {
-            perror("SIOCGIFHWADDR ioctl %s error:");
+            perror("SIOCGIFHWADDR ioctl error:");
         }
 
         buff[0] = {0};
@@ -128,12 +183,12 @@ int get_interface_list(le_interface_list_t& ret_list) {
         if (gateway_ip.size() > 0) {
             struct in_addr val;
             int ret = inet_aton(gateway_ip.c_str(), &val);
-            if (ret == 0) {
+            if (ret != 0) {
                 gateway_ip_int = ntohl(val.s_addr);
             }
         }
         if (gateway_ip.size() > 0 && gateway_ip_int > 0
-            && INADDR_NONE != gateway_ip_int) {
+                && INADDR_NONE != gateway_ip_int) {
             gateway_mac = arp_get(gateway_ip.c_str(), buf[if_len].ifr_name);
             if (gateway_mac.size() > 0) {
                 item.gw_mac_str = gateway_mac;
@@ -146,14 +201,6 @@ int get_interface_list(le_interface_list_t& ret_list) {
     return ret_list.size();
 }
 
-/*  arp_flags and at_flags field values */
-#define ATF_INUSE   0x01    /* entry in use */
-#define ATF_COM     0x02    /* completed entry (enaddr valid) */
-#define ATF_PERM    0x04    /* permanent entry */
-#define ATF_PUBL    0x08    /* publish entry (respond for other host) */
-#define ATF_USETRAILERS 0x10    /* has requested trailers */
-#define ATF_PROXY   0x20    /* Do PROXY arp */
-
 std::string arp_get(const char *ip, const char* dev) {
     struct arpreq arpreq;
     struct sockaddr_in *sin;
@@ -164,13 +211,13 @@ std::string arp_get(const char *ip, const char* dev) {
 
     sd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sd < 0) {
-        perror("socket");
+        perror("socket error:");
         return "";
     }
     char mac_str[256] ={0};
 
     /*you must add this becasue some system will return "Invlid argument"
-       because some argument isn't zero */
+      because some argument isn't zero */
     memset(&arpreq, 0, sizeof (struct arpreq));
 
     sin = (struct sockaddr_in *) &arpreq.arp_pa;
@@ -178,20 +225,21 @@ std::string arp_get(const char *ip, const char* dev) {
     sin->sin_family = AF_INET;
     ina.s_addr = inet_addr(ip);
     memcpy(&sin->sin_addr, reinterpret_cast<char *>(&ina),
-        sizeof(struct in_addr));
+            sizeof(struct in_addr));
 
     snprintf(arpreq.arp_dev, sizeof(arpreq.arp_dev), "%s", dev);
     rc = ioctl(sd, SIOCGARP, &arpreq);
-    if (rc > 0) {
-        hw_addr = (unsigned char *) arpreq.arp_ha.sa_data;
-
-        snprintf(mac_str, sizeof (mac_str), "%02x:%02x:%02x:%02x:%02x:%02x"
+    if (rc >= 0) {
+        if (arpreq.arp_flags & ATF_COM) {
+            hw_addr = (unsigned char *) arpreq.arp_ha.sa_data;
+            snprintf(mac_str, sizeof (mac_str), "%02x:%02x:%02x:%02x:%02x:%02x"
                     , GET_MAC_ITEM(hw_addr[0])
                     , GET_MAC_ITEM(hw_addr[1])
                     , GET_MAC_ITEM(hw_addr[2])
                     , GET_MAC_ITEM(hw_addr[3])
                     , GET_MAC_ITEM(hw_addr[4])
                     , GET_MAC_ITEM(hw_addr[5]));
+        }
     }
     close(sd);
 
@@ -208,7 +256,7 @@ struct route_info {
 
 int readNlSock(int sockFd, char *bufPtr, int seqNum, int pId) {
     struct nlmsghdr *nlHdr;
-    int readLen = 0, msgLen = 0;
+    uint32_t readLen = 0, msgLen = 0;
     do {
         if ((readLen = recv(sockFd, bufPtr, BUFSIZE - msgLen, 0)) < 0) {
             perror("get getway ip recv error:");
@@ -217,8 +265,8 @@ int readNlSock(int sockFd, char *bufPtr, int seqNum, int pId) {
 
         nlHdr = (struct nlmsghdr *) bufPtr;
         if ((NLMSG_OK(nlHdr, readLen) == 0)
-            || nlHdr->nlmsg_type == NLMSG_ERROR) {
-            perror("recieved packet error:\n");
+                || nlHdr->nlmsg_type == NLMSG_ERROR) {
+            perror("recieved packet error:");
             return -2;
         }
 
@@ -240,12 +288,13 @@ int readNlSock(int sockFd, char *bufPtr, int seqNum, int pId) {
 }
 
 void parseRoutes(const char* dev, struct nlmsghdr *nlHdr,
-    struct route_info *rtInfo, char *gateway, int sizeof_gateway) {
+        struct route_info *rtInfo, char *gateway, int sizeof_gateway) {
     struct rtmsg *rtMsg;
     struct rtattr *rtAttr;
     int rtLen;
     char *tempBuf = NULL;
     struct in_addr dst;
+    struct in_addr gate;
 
     tempBuf = reinterpret_cast<char *>(malloc(100));
     rtMsg = (struct rtmsg *) NLMSG_DATA(nlHdr);
@@ -263,7 +312,7 @@ void parseRoutes(const char* dev, struct nlmsghdr *nlHdr,
         switch (rtAttr->rta_type) {
             case RTA_OIF:
                 if_indextoname(*reinterpret_cast<int *>(RTA_DATA(rtAttr)),
-                    rtInfo->ifName);
+                        rtInfo->ifName);
                 break;
             case RTA_GATEWAY:
                 rtInfo->gateWay = *reinterpret_cast<u_int *>(RTA_DATA(rtAttr));
@@ -277,10 +326,11 @@ void parseRoutes(const char* dev, struct nlmsghdr *nlHdr,
         }
     }
     dst.s_addr = rtInfo->dstAddr;
-    std::string dst_addr = inet_ntoa(dst.s_addr);
+    std::string dst_addr = inet_ntoa(dst);
     if (strstr(dst_addr.c_str(), "0.0.0.0")
             && strcmp(rtInfo->ifName, dev) == 0) {
-        std::string gate_addr = inet_ntoa(rtInfo->gateWay);
+        gate.s_addr = rtInfo->gateWay;
+        std::string gate_addr = inet_ntoa(gate);
         snprintf(gateway, sizeof_gateway, "%s", gate_addr.c_str());
     }
     free(tempBuf);
@@ -293,10 +343,11 @@ int get_gateway(char* dev, char *gateway, int sizeof_gateway) {
     struct route_info *rtInfo;
     char msgBuf[BUFSIZE];
 
-    int sock, len, msgSeq = 0;
+    int sock, msgSeq = 0;
+    uint32_t len;
 
     if ((sock = socket(PF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE)) < 0) {
-        perror("Socket Creation error:");
+        perror("socket error:");
         return -1;
     }
 
@@ -331,3 +382,4 @@ int get_gateway(char* dev, char *gateway, int sizeof_gateway) {
     close(sock);
     return 0;
 }
+

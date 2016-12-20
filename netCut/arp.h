@@ -14,7 +14,6 @@
 #include <stdint.h>
 #include <time.h>
 
-const char* g_program_name = NULL;
 
 typedef struct arp_packet_s_ {
     struct ether_header eth_h;
@@ -39,4 +38,5 @@ typedef struct arp_cheat_addr_s_ {
 uint8_t* get_mac_addr(const char* src, uint8_t* tmac, int32_t len);
 int32_t check_ip(const char* p);
 void send_arp_packet(arp_cheat_addr_t* addrs);
+void on_recv_arp_func();
 

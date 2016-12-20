@@ -9,6 +9,7 @@
  */
 #include "arp.h"
 
+extern int run;
 unsigned char* get_mac_addr(const char* src, unsigned char* tmac, int32_t len) {
     int32_t tnum;
     char tsrc[25];
@@ -161,8 +162,7 @@ void send_arp_packet(arp_cheat_addr_t* addrs) {
                 break;
             }
             memcpy(addrs->eth_src_mac, ifr.ifr_hwaddr.sa_data, ETH_ALEN);
-        }
-        if (0 == memcmp(addrs->arp_snd_mac, &null_mac, ETH_ALEN)) {
+        } if (0 == memcmp(addrs->arp_snd_mac, &null_mac, ETH_ALEN)) {
             if (ioctl(fd, SIOCGIFHWADDR, &ifr)) {
                 perror("ioctl get mac error:");
                 break;
@@ -180,23 +180,32 @@ void send_arp_packet(arp_cheat_addr_t* addrs) {
 
         time_t now;
         char timebuf[256];
-        for (long i = 1;; i++) {
-            ret_len = sendto(fd, buf, sizeof buf, 0, (struct sockaddr *)&saddr_ll,
-                    sizeof(struct sockaddr_ll));
-            if (ret_len != sizeof buf) {
-                perror("sendto error");
-            }
-            now = time(0);
-            strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S",
-                    (struct tm *) localtime(&now));
-            fprintf(stdout, "%s: send arp cheat packet [%ld]\n", timebuf, i);
-            sleep(1);
+        ret_len = sendto(fd, buf, sizeof buf, 0, (struct sockaddr *)&saddr_ll,
+                sizeof(struct sockaddr_ll));
+        if (ret_len != sizeof buf) {
+            perror("sendto error");
         }
-/*
+        now = time(0);
+        strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S",
+                (struct tm *) localtime(&now));
+    } while(0);
+
+    if (fd > 0) {
+        close(fd);
+    }
+}
+void on_recv_arp_func() {
+    char buf[sizeof(arp_packet_t)];
+    int fd;
+    do {
         struct ether_arp *arp_packet;
-        while (0) {
+        if ((fd = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ARP))) == -1) {
+            perror("socket error:");
+            break;
+        }
+        while (run) {
             bzero(buf, sizeof(arp_packet_t));
-            ret_len = recv(fd, buf, sizeof(arp_packet_t), 0);
+            int ret_len = recv(fd, buf, sizeof(arp_packet_t), 0);
             if (ret_len > 0) {
                 arp_packet = (struct ether_arp *)(buf + sizeof(struct ether_header));
                 if (ntohs(arp_packet->arp_op) == 2) {
@@ -211,14 +220,9 @@ void send_arp_packet(arp_cheat_addr_t* addrs) {
                 }
             }
         }
-*/
     } while(0);
-
-    if (fd > 0) {
-        close(fd);
-    }
 }
-
+/*
 static int32_t check_arp_addr(arp_cheat_addr_t* addrs) {
     unsigned char null_mac[ETH_ALEN] = { 0 };
     if (0 == memcmp(addrs->eth_src_mac, &null_mac, ETH_ALEN)
@@ -246,4 +250,5 @@ static int32_t check_arp_addr(arp_cheat_addr_t* addrs) {
 
     return 0;
 }
+*/
 

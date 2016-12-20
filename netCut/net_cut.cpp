@@ -203,11 +203,12 @@ int main(int argc, const char *argv[]) {
         bzero(arp_pkt.arp_tgt_mac, ETH_ALEN);
         arp_pkt.arp_snd_ip = self_ip_str;
         for (int i = 0; i < host_cnt; i++) {
-            printf("send[%d]\n", i);
+//            printf("send[%d]\n", i);
             start.s_addr = htonl(start_ip + i);
             snprintf(start_s, sizeof(start_s), inet_ntoa(start));
             arp_pkt.arp_tgt_ip = start_s;
             send_arp_packet(&arp_pkt);
+            usleep(1000);
         }
         sleep(5);
         run = false;

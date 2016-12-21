@@ -198,12 +198,11 @@ int main(int argc, const char *argv[]) {
         arp_pkt.op = 1;
         arp_pkt.if_name = ifname;
         memcpy(arp_pkt.eth_src_mac, mac, ETH_ALEN);
-        arp_pkt.eth_src_mac = BROADCAST_ADDR;
+        arp_pkt.eth_dst_mac = BROADCAST_ADDR;
         memcpy(arp_pkt.arp_snd_mac, mac, ETH_ALEN);
         bzero(arp_pkt.arp_tgt_mac, ETH_ALEN);
         arp_pkt.arp_snd_ip = self_ip_str;
         for (int i = 0; i < host_cnt; i++) {
-//            printf("send[%d]\n", i);
             start.s_addr = htonl(start_ip + i);
             snprintf(start_s, sizeof(start_s), inet_ntoa(start));
             arp_pkt.arp_tgt_ip = start_s;

@@ -209,10 +209,13 @@ int main(int argc, const char *argv[]) {
             send_arp_packet(&arp_pkt);
             usleep(1000);
         }
-        sleep(5);
-        run = false;
+        while (run) {
+            sleep(1);
+        }
 
-        recv.join();
+        if (recv.joinable()) {
+            recv.join();
+        }
         return 0;
     }
     return 0;

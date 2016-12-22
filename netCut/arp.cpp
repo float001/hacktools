@@ -8,6 +8,7 @@
  *
  */
 #include "arp.h"
+#include "nbns.h"
 #include <string>
 #include <map>
 
@@ -196,67 +197,87 @@ void send_arp_packet(arp_cheat_addr_t* addrs) {
         close(fd);
     }
 }
+typedef struct {
+    std::string ip;
+    std::string mac;
+    std::string name;
+    std::string group;
+} host_info;
+std::map<std::string, host_info> ips;
+std::map<std::string, host_info>::iterator iter;
+static int deal_arp_packet(struct ether_arp *arp_packet) {
+    if (ntohs(arp_packet->arp_op) == 2) {
+        host_info info;
+        char mac_str[64];
+        struct in_addr ippp;
+        memcpy(&ippp, arp_packet->arp_spa, 4);
+        info.ip = inet_ntoa(ippp);
+        iter = ips.find(info.ip);
+        if (iter == ips.end()) {
+            snprintf(mac_str, sizeof(mac_str),
+                    "%02X:%02X:%02X:%02X:%02X:%02X",
+                    arp_packet->arp_sha[0],
+                    arp_packet->arp_sha[1],
+                    arp_packet->arp_sha[2],
+                    arp_packet->arp_sha[3],
+                    arp_packet->arp_sha[4],
+                    arp_packet->arp_sha[5]);
+            info.mac = mac_str;
+            get_remote_name(info.ip.c_str(), info.name, info.group);
+            printf("%-20s%-20s%-20s%-20s\n", info.ip.c_str(), mac_str,
+                    info.name.c_str(), info.group.c_str());
+            ips.insert(std::map<std::string, host_info>::value_type\
+                    (info.ip, info));
+            return 0;
+        }
+        return 2;
+    }
+    return 1;
+}
 void on_recv_arp_func() {
     char buf[sizeof(arp_packet_t)];
     int fd;
     struct timeval read_timeout;
     int rc = 0;
-    std::string ip;
-    char mac_str[56];
-    std::map<std::string, std::string> ips;
-    std::map<std::string, std::string>::iterator iter;
     ips.clear();
-    printf("%-20s%-20s\n", "Ip", "Mac");
+    printf("%-20s%-20s%-20s%-20s\n", "Ip", "Mac", "Host Name", "Group");
     do {
-        struct ether_arp *arp_packet;
         if ((fd = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ARP))) == -1) {
             perror("socket error:");
             break;
         }
+        int l_time = time(0);
         unsigned long arg = 1;
         ioctl(fd, FIONBIO, &arg);
-        while (run) {
+        while (1) {
             fd_set read_fds;
             FD_ZERO(&read_fds);
             FD_SET(fd, &read_fds);
 
-            read_timeout.tv_sec = 1;
+            read_timeout.tv_sec = 2;
             read_timeout.tv_usec = 0;
 
             rc = select(fd + 1, &read_fds, NULL, NULL, &read_timeout);
             if (rc < 0) {
                 break;
             } else if (rc == 0) {
-                continue;
+                break;
             }
             if (FD_ISSET(fd, &read_fds)) {
                 bzero(buf, sizeof(arp_packet_t));
                 int ret_len = recv(fd, buf, sizeof(arp_packet_t), 0);
                 if (ret_len > 0) {
-                    arp_packet = (struct ether_arp *)
-                        (buf + sizeof(struct ether_header));
-                    if (ntohs(arp_packet->arp_op) == 2) {
-                        struct in_addr ippp;
-                        memcpy(&ippp, arp_packet->arp_spa, 4);
-                        ip = inet_ntoa(ippp);
-                        iter = ips.find(ip);
-                        if (iter == ips.end()) {
-                            snprintf(mac_str, sizeof(mac_str),
-                                    "%02X:%02X:%02X:%02X:%02X:%02X",
-                                    arp_packet->arp_sha[0],
-                                    arp_packet->arp_sha[1],
-                                    arp_packet->arp_sha[2],
-                                    arp_packet->arp_sha[3],
-                                    arp_packet->arp_sha[4],
-                                    arp_packet->arp_sha[5]);
-                            printf("%-20s%-20s\n", ip.c_str(), mac_str);
-                            ips.insert(std::map<std::string, std::string>::value_type\
-                                    (ip, mac_str));
-                        }
+                    if (0 == deal_arp_packet((struct ether_arp *)
+                                (buf + sizeof(struct ether_header)))) {
+                        l_time = time(0);
                     }
                 }
             }
+            if (time(0) - l_time > 5) {
+                break;
+            }
         }
+        run = false;
         printf("found %zd host valid!!!!!!\n", ips.size());
         close(fd);
     } while(0);

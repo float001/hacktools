@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <time.h>
+#include <string>
 
 
 typedef struct arp_packet_s_ {
@@ -39,4 +40,5 @@ uint8_t* get_mac_addr(const char* src, uint8_t* tmac, int32_t len);
 int32_t check_ip(const char* p);
 void send_arp_packet(arp_cheat_addr_t* addrs);
 void on_recv_arp_func();
+std::string get_rand_mac();
 

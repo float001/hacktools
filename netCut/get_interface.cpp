@@ -27,8 +27,6 @@ int get_if_info(const char* name, interface_item_t& info) {
     struct ifreq ifr;
     std::string item_str;
     int status = 0;
-    std::string gateway_ip;
-    std::string gateway_mac;
     char mac_str[256] = {0};
     if (strlen(name) >= sizeof(ifr.ifr_name)) {
         fprintf(stderr, "interface name is too long.\n");
@@ -96,7 +94,7 @@ int get_if_info(const char* name, interface_item_t& info) {
 
     if (info.gw_ip_str.size() > 0) {
         struct in_addr val;
-        int ret = inet_aton(gateway_ip.c_str(), &val);
+        int ret = inet_aton(info.gw_ip_str.c_str(), &val);
         if (ret != 0) {
             info.gw_ip = ntohl(val.s_addr);
         }

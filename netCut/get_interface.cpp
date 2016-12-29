@@ -15,16 +15,21 @@
 #include <stdlib.h>
 #include <linux/rtnetlink.h>
 #include <string>
+#include "arp.h"
 
 static int get_gateway(char* dev, char *gateway, int sizeof_gateeay);
 static std::string arp_get(const char *ip, const char* dev);
 #define MAXINTERFACES 16
 #define GET_MAC_ITEM(a) static_cast<int>(static_cast<unsigned char>(a))
 
-int get_if_ip_mask(const char* name, uint32_t &ip, uint32_t &mask,
-        uint8_t* mac) {
+int get_if_info(const char* name, interface_item_t& info) {
     int fd;
     struct ifreq ifr;
+    std::string item_str;
+    int status = 0;
+    std::string gateway_ip;
+    std::string gateway_mac;
+    char mac_str[256] = {0};
     if (strlen(name) >= sizeof(ifr.ifr_name)) {
         fprintf(stderr, "interface name is too long.\n");
         return -1;
@@ -37,48 +42,69 @@ int get_if_ip_mask(const char* name, uint32_t &ip, uint32_t &mask,
 
     bzero(&ifr, sizeof (struct ifreq));
     memcpy(ifr.ifr_name, name, strlen(name));
-
     if (ioctl(fd, SIOCGIFFLAGS, &ifr) == 0) {
         /* 接口状态 */
         if (ifr.ifr_flags & IFF_UP) {
+            status = 1;
         } else {
-            fprintf(stderr, "interface [%s] is not up.\n", name);
-            close(fd);
-            return -3;
+            status = 0;
         }
+        info.status = (status != 0 ? 1 : 0);
     } else {
         perror("SIOCGIFFLAGS ioctl error :");
-        close(fd);
-        return -4;
     }
 
     /* IP地址 */
     if (ioctl(fd, SIOCGIFADDR, &ifr) == 0) {
         struct sockaddr_in *cur = reinterpret_cast<struct sockaddr_in*> \
                                   (&ifr.ifr_addr);
-        ip = ntohl(cur->sin_addr.s_addr);
+        info.ip = ntohl(cur->sin_addr.s_addr);
+        info.ip_str = inet_ntoa(cur->sin_addr);
     } else {
         perror("SIOCGIFADDR ioctl error:");
-        close(fd);
-        return -5;
     }
+
     /* 子网掩码 */
     if (ioctl(fd, SIOCGIFNETMASK, &ifr) == 0) {
         struct sockaddr_in *cur = reinterpret_cast<struct sockaddr_in*> \
                                   (&ifr.ifr_addr);
-        mask = ntohl(cur->sin_addr.s_addr);
+        info.netmask = ntohl(cur->sin_addr.s_addr);
+        info.netmask_str = inet_ntoa(cur->sin_addr);
     } else {
-        perror("SIOCGIFADDR ioctl error:");
-        close(fd);
-        return -6;
+        perror("SIOCGIFNETMASK ioctl error:");
     }
+
     /*MAC地址 */
     if (ioctl(fd, SIOCGIFHWADDR, &ifr) == 0) {
-        memcpy(mac, ifr.ifr_hwaddr.sa_data, ETH_ALEN);
+        memcpy(info.mac, ifr.ifr_hwaddr.sa_data, ETH_ALEN);
+        snprintf(mac_str, sizeof (mac_str), "%02x:%02x:%02x:%02x:%02x:%02x"
+                , GET_MAC_ITEM(ifr.ifr_hwaddr.sa_data[0])
+                , GET_MAC_ITEM(ifr.ifr_hwaddr.sa_data[1])
+                , GET_MAC_ITEM(ifr.ifr_hwaddr.sa_data[2])
+                , GET_MAC_ITEM(ifr.ifr_hwaddr.sa_data[3])
+                , GET_MAC_ITEM(ifr.ifr_hwaddr.sa_data[4])
+                , GET_MAC_ITEM(ifr.ifr_hwaddr.sa_data[5]));
+        info.mac_str = mac_str;
     } else {
         perror("SIOCGIFHWADDR ioctl error:");
-        close(fd);
-        return -7;
+    }
+
+    mac_str[0] = {0};
+    if (0 == get_gateway(ifr.ifr_name, mac_str, sizeof(mac_str))) {
+        info.gw_ip_str = mac_str;
+    }
+
+    if (info.gw_ip_str.size() > 0) {
+        struct in_addr val;
+        int ret = inet_aton(gateway_ip.c_str(), &val);
+        if (ret != 0) {
+            info.gw_ip = ntohl(val.s_addr);
+        }
+    }
+    if (info.gw_ip_str.size() > 0 && info.gw_ip > 0
+            && INADDR_NONE != info.gw_ip) {
+        info.gw_mac_str = arp_get(info.gw_ip_str.c_str(), name);
+        get_mac_addr(info.gw_mac_str.c_str(), info.gw_mac, ETH_ALEN);
     }
 
     return 0;
@@ -88,8 +114,6 @@ int get_interface_list(interface_list_t& ret_list) {
     int if_len;
     struct ifreq buf[MAXINTERFACES];
     struct ifconf ifc;
-    char buff[256] = {0};
-    char mac_str[256] = {0};
 
     if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
         perror("socket(AF_INET,SOCK_DGRAM,0) error:");
@@ -107,11 +131,7 @@ int get_interface_list(interface_list_t& ret_list) {
 
     if_len = ifc.ifc_len / sizeof (struct ifreq);
     while (if_len-- > 0) {
-        std::string item_str;
         std::string name;
-        int status = 0;
-        std::string gateway_ip;
-        std::string gateway_mac;
 
         interface_item_t item;
         item.name = "-";
@@ -125,75 +145,7 @@ int get_interface_list(interface_list_t& ret_list) {
         name = buf[if_len].ifr_name;
         item.name = name;
 
-        if (ioctl(fd, SIOCGIFFLAGS, &buf[if_len]) == 0) {
-            /* 接口状态 */
-            if (buf[if_len].ifr_flags & IFF_UP) {
-                status = 1;
-            } else {
-                status = 0;
-            }
-            item.status = (status != 0 ? 1 : 0);
-        } else {
-            perror("SIOCGIFFLAGS ioctl error :");
-            status = -1;
-        }
-
-        /* IP地址 */
-        if (ioctl(fd, SIOCGIFADDR, &buf[if_len]) == 0) {
-            struct sockaddr_in *cur = reinterpret_cast<struct sockaddr_in*> \
-                                      (&buf[if_len].ifr_addr);
-            item.ip = ntohl(cur->sin_addr.s_addr);
-            item.ip_str = inet_ntoa(cur->sin_addr);
-        } else {
-            perror("SIOCGIFADDR ioctl error:");
-        }
-
-        /* 子网掩码 */
-        if (ioctl(fd, SIOCGIFNETMASK, &buf[if_len]) == 0) {
-            struct sockaddr_in *cur = reinterpret_cast<struct sockaddr_in*> \
-                                      (&buf[if_len].ifr_addr);
-            item.netmask_str = inet_ntoa(cur->sin_addr);
-        } else {
-            perror("SIOCGIFNETMASK ioctl error:");
-        }
-
-        /*MAC地址 */
-        if (ioctl(fd, SIOCGIFHWADDR, &buf[if_len]) == 0) {
-            snprintf(mac_str, sizeof (mac_str), "%02x:%02x:%02x:%02x:%02x:%02x"
-                    , GET_MAC_ITEM(buf[if_len].ifr_hwaddr.sa_data[0])
-                    , GET_MAC_ITEM(buf[if_len].ifr_hwaddr.sa_data[1])
-                    , GET_MAC_ITEM(buf[if_len].ifr_hwaddr.sa_data[2])
-                    , GET_MAC_ITEM(buf[if_len].ifr_hwaddr.sa_data[3])
-                    , GET_MAC_ITEM(buf[if_len].ifr_hwaddr.sa_data[4])
-                    , GET_MAC_ITEM(buf[if_len].ifr_hwaddr.sa_data[5]));
-            item.mac_str = mac_str;
-        } else {
-            perror("SIOCGIFHWADDR ioctl error:");
-        }
-
-        buff[0] = {0};
-        if (0 == get_gateway(buf[if_len].ifr_name, buff, sizeof(buff))) {
-            gateway_ip = buff;
-        }
-        if (gateway_ip.size() > 0) {
-            item.gw_ip_str = buff;
-        }
-
-        uint32_t gateway_ip_int = 0;
-        if (gateway_ip.size() > 0) {
-            struct in_addr val;
-            int ret = inet_aton(gateway_ip.c_str(), &val);
-            if (ret != 0) {
-                gateway_ip_int = ntohl(val.s_addr);
-            }
-        }
-        if (gateway_ip.size() > 0 && gateway_ip_int > 0
-                && INADDR_NONE != gateway_ip_int) {
-            gateway_mac = arp_get(gateway_ip.c_str(), buf[if_len].ifr_name);
-            if (gateway_mac.size() > 0) {
-                item.gw_mac_str = gateway_mac;
-            }
-        }
+        get_if_info(name.c_str(), item);
         ret_list.push_back(item);
     }
 

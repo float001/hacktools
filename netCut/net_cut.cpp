@@ -56,24 +56,78 @@ static void usage() {
     fprintf(stdout, "    -li            : get network interfaces info\n");
     fprintf(stdout, "    -t             : cut type:\n"
                     "                        "
-                    "0-send request packet to target ip\n"
+                    "0 - deceive the gateway\n"
                     "                        "
-                    "1-send response packet to target ip\n"
+                    "1 - deceive the host\n"
                     "                        "
-                    "2-send request packet to getway\n"
-                    "                        "
-                    "3-send response packet to getway\n");
+                    "2 - deceive all hosts\n");
     fprintf(stdout, "    -i             : interface's name eg. eth0\n");
     fprintf(stdout, "    -scan          : scan inner host\n");
-    fprintf(stdout, "    [-getway ip]   : specify getway ip\n");
-    fprintf(stdout, "    [-tgt_ip ip]   : target ip\n");
-    fprintf(stdout, "    [-tgt_mac mac] : target mac\n");
-    fprintf(stdout, "    -fake_ip ip    : fake ip\n");
-    fprintf(stdout, "    -fake_mac mac  : fake mac\n");
+    fprintf(stdout, "    [-gwip ip]     : specify gateway ip\n");
+    fprintf(stdout, "    [-gwmac mac]   : specify gateway mac\n");
+    fprintf(stdout, "    -target ip     : target ip\n");
     fprintf(stdout, "    -h             : help\n");
     fprintf(stdout, "\nBest wishes!! Contact float0001@gmail.com.\n");
     exit(0);
 
+}
+static void scan_host(const char* ifname) {
+    uint32_t start_ip, end_ip;
+    struct in_addr start, end;
+    char start_s[32], end_s[32];
+    int host_cnt = 0;
+    arp_cheat_addr_t arp_pkt;
+    interface_item_t info;
+    info.name = "-";
+    info.ip = 0;
+    info.ip_str = "-";
+    info.netmask_str = "-";
+    info.mac_str = "-";
+    info.gw_ip_str = "-";
+    info.gw_mac_str = "-";
+    if (0 != get_if_info(ifname, info)) {
+        fprintf(stderr, "get interface info error\n");
+        return ;
+    }
+    if ((info.ip & 0x7F000000) == 0x7F000000) {  // 排除lo网卡
+        printf("ignore interface [%s]\n", ifname);
+        return ;
+    }
+    printf("self ip:%s mask:%s mac:%s\n", info.ip_str.c_str(),
+            info.netmask_str.c_str(), info.mac_str.c_str());
+
+    host_cnt = (info.netmask ^ 0xFFFFFFFF) - 1;
+    start_ip = (info.ip & info.netmask) + 1;
+    end_ip = start_ip + host_cnt - 1;
+    start.s_addr = htonl(start_ip);
+    end.s_addr = htonl(end_ip);
+    snprintf(start_s, sizeof(start_s), inet_ntoa(start));
+    snprintf(end_s, sizeof(end_s), inet_ntoa(end));
+    printf("scan ip: %s - %s\n", start_s, end_s);
+    printf("total: %d\n", host_cnt);
+
+    std::thread recv(on_recv_arp_func);
+    arp_pkt.op = 1;
+    arp_pkt.if_name = ifname;
+    memcpy(arp_pkt.eth_src_mac, info.mac, ETH_ALEN);
+    arp_pkt.eth_dst_mac = BROADCAST_ADDR;
+    memcpy(arp_pkt.arp_snd_mac, info.mac, ETH_ALEN);
+    bzero(arp_pkt.arp_tgt_mac, ETH_ALEN);
+    arp_pkt.arp_snd_ip = info.ip_str.c_str();
+    for (int i = 0; i < host_cnt; i++) {
+        start.s_addr = htonl(start_ip + i);
+        snprintf(start_s, sizeof(start_s), inet_ntoa(start));
+        arp_pkt.arp_tgt_ip = start_s;
+        send_arp_packet(&arp_pkt);
+        usleep(1000);
+    }
+    while (run) {
+        sleep(1);
+    }
+
+    if (recv.joinable()) {
+        recv.join();
+    }
 }
 int main(int argc, const char *argv[]) {
     char *p = (char *)memrchr((const void *)argv[0], (int)'/', strlen(argv[0]));
@@ -156,66 +210,7 @@ int main(int argc, const char *argv[]) {
          usage();
     }
     if (is_scan) {
-        uint32_t self_ip, mask;
-        uint8_t mac[ETH_ALEN];
-        uint32_t start_ip, end_ip;
-        struct in_addr start, end;
-        char self_ip_str[32], start_s[32], end_s[32];
-        int host_cnt = 0;
-        arp_cheat_addr_t arp_pkt;
-        if (0 != get_if_ip_mask(ifname, self_ip, mask, mac)) {
-            fprintf(stderr, "get interface ip and mask error\n");
-            return -1;
-        }
-        if ((self_ip & 0x7F000000) == 0x7F000000) {  // 排除lo网卡
-            printf("ignore interface [%s]\n", ifname);
-            return 0;
-        }
-        start.s_addr = htonl(self_ip);
-        end.s_addr = htonl(mask);
-        snprintf(self_ip_str, sizeof(self_ip_str), inet_ntoa(start));
-        snprintf(end_s, sizeof(end_s), inet_ntoa(end));
-        printf("self ip:%s mask:%s mac:", self_ip_str, end_s);
-        for (int i = 0; i< ETH_ALEN; i++) {
-            printf("%02X", mac[i]);
-            if (i < ETH_ALEN -1) {
-                printf(":");
-            }
-        }
-        printf("\n");
-
-        host_cnt = (mask ^ 0xFFFFFFFF) - 1;
-        start_ip = (self_ip & mask) + 1;
-        end_ip = start_ip + host_cnt - 1;
-        start.s_addr = htonl(start_ip);
-        end.s_addr = htonl(end_ip);
-        snprintf(start_s, sizeof(start_s), inet_ntoa(start));
-        snprintf(end_s, sizeof(end_s), inet_ntoa(end));
-        printf("scan ip: %s - %s\n", start_s, end_s);
-        printf("total: %d\n", host_cnt);
-
-        std::thread recv(on_recv_arp_func);
-        arp_pkt.op = 1;
-        arp_pkt.if_name = ifname;
-        memcpy(arp_pkt.eth_src_mac, mac, ETH_ALEN);
-        arp_pkt.eth_dst_mac = BROADCAST_ADDR;
-        memcpy(arp_pkt.arp_snd_mac, mac, ETH_ALEN);
-        bzero(arp_pkt.arp_tgt_mac, ETH_ALEN);
-        arp_pkt.arp_snd_ip = self_ip_str;
-        for (int i = 0; i < host_cnt; i++) {
-            start.s_addr = htonl(start_ip + i);
-            snprintf(start_s, sizeof(start_s), inet_ntoa(start));
-            arp_pkt.arp_tgt_ip = start_s;
-            send_arp_packet(&arp_pkt);
-            usleep(1000);
-        }
-        while (run) {
-            sleep(1);
-        }
-
-        if (recv.joinable()) {
-            recv.join();
-        }
+        scan_host(ifname);
         return 0;
     }
     return 0;

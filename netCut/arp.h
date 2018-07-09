@@ -32,6 +32,13 @@ typedef struct arp_cheat_addr_s_ {
     const char* if_name;
 } arp_cheat_addr_t;
 
+typedef struct {
+    std::string ip;
+    std::string mac;
+    std::string name;
+    std::string group;
+} host_info;
+
 #define IP_ADDR_LEN 4
 #define BROADCAST_ADDR {0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 
@@ -41,4 +48,6 @@ int32_t check_ip(const char* p);
 void send_arp_packet(arp_cheat_addr_t* addrs);
 void on_recv_arp_func();
 std::string get_rand_mac();
-
+std::string get_ip_mac(const char* ifname, const char* src_ip,
+         const char* src_mac, const char* target_ip, uint8_t* ip_mac_addr,
+         int32_t len);

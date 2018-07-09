@@ -197,12 +197,6 @@ void send_arp_packet(arp_cheat_addr_t* addrs) {
         close(fd);
     }
 }
-typedef struct {
-    std::string ip;
-    std::string mac;
-    std::string name;
-    std::string group;
-} host_info;
 std::map<std::string, host_info> ips;
 std::map<std::string, host_info>::iterator iter;
 static int deal_arp_packet(struct ether_arp *arp_packet) {
@@ -249,7 +243,7 @@ void on_recv_arp_func() {
         int l_time = time(0);
         unsigned long arg = 1;
         ioctl(fd, FIONBIO, &arg);
-        while (1) {
+        while (run) {
             fd_set read_fds;
             FD_ZERO(&read_fds);
             FD_SET(fd, &read_fds);
@@ -336,3 +330,80 @@ std::string get_rand_mac() {
     return fmtMACAddr;
 }
 
+std::string get_ip_mac(const char* ifname, const char* src_ip, const char* src_mac, 
+               const char* target_ip, uint8_t* ip_mac_addr, int32_t len) {
+    uint8_t broad[ETH_ALEN] = BROADCAST_ADDR;
+    arp_cheat_addr_t req_arpbuf;
+    req_arpbuf.if_name = ifname;
+    req_arpbuf.op = 1;
+    memcpy(req_arpbuf.eth_dst_mac, broad, ETH_ALEN);
+    bzero(req_arpbuf.arp_tgt_mac, ETH_ALEN);
+    req_arpbuf.arp_snd_ip = src_ip;
+    req_arpbuf.arp_tgt_ip = target_ip;
+    get_mac_addr(src_mac, req_arpbuf.eth_src_mac, ETH_ALEN);
+    memcpy(req_arpbuf.arp_snd_mac, req_arpbuf.eth_src_mac, ETH_ALEN);
+    send_arp_packet(&req_arpbuf);
+    char buf[sizeof(arp_packet_t)];
+    int fd;
+    struct timeval read_timeout;
+    int rc = 0;
+    ips.clear();
+    do {
+        if ((fd = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ARP))) == -1) {
+            perror("socket error:");
+            break;
+        }
+        int l_time = time(0);
+        unsigned long arg = 1;
+        ioctl(fd, FIONBIO, &arg);
+        while (1) {
+            fd_set read_fds;
+            FD_ZERO(&read_fds);
+            FD_SET(fd, &read_fds);
+
+            read_timeout.tv_sec = 1;
+            read_timeout.tv_usec = 0;
+
+            send_arp_packet(&req_arpbuf);
+            rc = select(fd + 1, &read_fds, NULL, NULL, &read_timeout);
+            if (rc < 0) {
+                break;
+            } else if (rc == 0) {
+                break;
+            }
+            if (FD_ISSET(fd, &read_fds)) {
+                bzero(buf, sizeof(arp_packet_t));
+                int ret_len = recv(fd, buf, sizeof(arp_packet_t), 0);
+                if (ret_len > 0) {
+                    struct ether_arp *arp_packet =
+                       (struct ether_arp *)(buf + sizeof(struct ether_header));
+                    if (ntohs(arp_packet->arp_op) == 2) {
+                        host_info info;
+                        char mac_str[64];
+                        struct in_addr ippp;
+                        memcpy(&ippp, arp_packet->arp_spa, 4);
+                        info.ip = inet_ntoa(ippp);
+                        if (strcmp(info.ip.c_str(), target_ip) == 0) {
+                            snprintf(mac_str, sizeof(mac_str),
+                                    "%02X:%02X:%02X:%02X:%02X:%02X",
+                                    arp_packet->arp_sha[0],
+                                    arp_packet->arp_sha[1],
+                                    arp_packet->arp_sha[2],
+                                    arp_packet->arp_sha[3],
+                                    arp_packet->arp_sha[4],
+                                    arp_packet->arp_sha[5]);
+                            get_mac_addr(mac_str, ip_mac_addr, ETH_ALEN);
+                            return mac_str;
+                        }
+                        l_time = time(0);
+                    }
+                }
+            }
+            if (time(0) - l_time > 5) {
+                break;
+            }
+        }
+        close(fd);
+    } while(0);
+    return "";
+}

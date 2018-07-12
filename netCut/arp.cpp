@@ -12,7 +12,7 @@
 #include <string>
 #include <map>
 
-extern int run;
+extern bool run;
 unsigned char* get_mac_addr(const char* src, unsigned char* tmac, int32_t len) {
     int32_t tnum;
     char tsrc[25];
@@ -228,7 +228,7 @@ static int deal_arp_packet(struct ether_arp *arp_packet) {
     }
     return 1;
 }
-void on_recv_arp_func() {
+void* on_recv_arp_func(void* args) {
     char buf[sizeof(arp_packet_t)];
     int fd;
     struct timeval read_timeout;
@@ -267,14 +267,14 @@ void on_recv_arp_func() {
                     }
                 }
             }
-            if (time(0) - l_time > 5) {
+            if (time(0) - l_time > 2) {
                 break;
             }
         }
-        run = false;
         printf("found %zd host valid!!!!!!\n", ips.size());
         close(fd);
     } while(0);
+    return ((void *)0);
 }
 /*
    static int32_t check_arp_addr(arp_cheat_addr_t* addrs) {
@@ -356,7 +356,7 @@ std::string get_ip_mac(const char* ifname, const char* src_ip, const char* src_m
         int l_time = time(0);
         unsigned long arg = 1;
         ioctl(fd, FIONBIO, &arg);
-        while (1) {
+        while (run) {
             fd_set read_fds;
             FD_ZERO(&read_fds);
             FD_SET(fd, &read_fds);

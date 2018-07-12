@@ -46,7 +46,7 @@ typedef struct {
 uint8_t* get_mac_addr(const char* src, uint8_t* tmac, int32_t len);
 int32_t check_ip(const char* p);
 void send_arp_packet(arp_cheat_addr_t* addrs);
-void on_recv_arp_func();
+void* on_recv_arp_func(void* args);
 std::string get_rand_mac();
 std::string get_ip_mac(const char* ifname, const char* src_ip,
          const char* src_mac, const char* target_ip, uint8_t* ip_mac_addr,

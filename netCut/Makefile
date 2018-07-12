@@ -4,7 +4,7 @@
 
 .PHONY: all clean depend
 
-CFLAGS := -Wall -g -O0 -std=c++11 -D_GNU_SOURCE
+CFLAGS := -Wall -g -O0 -D_GNU_SOURCE
 INCLUDE := -I./
 LDFLAGS := -lpthread
 CC := g++

@@ -87,7 +87,7 @@ int get_if_info(const char* name, interface_item_t& info) {
         perror("SIOCGIFHWADDR ioctl error:");
     }
 
-    mac_str[0] = {0};
+    mac_str[0] = 0;
     if (0 == get_gateway(ifr.ifr_name, mac_str, sizeof(mac_str))) {
         info.gw_ip_str = mac_str;
     }
